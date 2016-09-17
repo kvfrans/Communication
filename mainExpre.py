@@ -15,11 +15,11 @@ class Q_Basic():
         self.observations_in = tf.placeholder(tf.float32, [None,num_observations])
 
         self.w1 = tf.Variable(tf.random_normal([num_observations, num_hidden], stddev=0.1), name="w1")
-        # self.b1 = tf.Variable(tf.random_normal([num_hidden], stddev=0.), name="b1")
+        self.b1 = tf.Variable(tf.random_normal([num_hidden], stddev=0.), name="b1")
         self.w2 = tf.Variable(tf.random_normal([num_hidden, num_actions], stddev=0.1), name="w2")
-        # self.b2 = tf.Variable(tf.random_normal([num_actions], stddev=0.), name="b2")
+        self.b2 = tf.Variable(tf.random_normal([num_actions], stddev=0.), name="b2")
 
-        self.h1 = tf.sigmoid(tf.matmul(self.observations_in, self.w1))
+        self.h1 = tf.nn.relu(tf.matmul(self.observations_in, self.w1))
         self.estimated_values = tf.matmul(self.h1, self.w2)
 
         self.tvars = tf.trainable_variables()
@@ -55,7 +55,7 @@ class Q_Basic():
 
 
 env = gym.make('Delivery-v0')
-env.monitor.start('monitor/', force=True)
+# env.monitor.start('monitor/', force=True)
 
 
 
@@ -63,14 +63,13 @@ num_actions = 4
 num_observations = 4
 
 model = Q_Basic(num_actions, num_observations, 30)
-
+transitions = []
 for episode in xrange(1000):
     observation = env.reset()
-    transitions = []
     epsilon = max(0.2, ((100-episode) / 100.0))
 
     totalreward = 0
-    for frame in xrange(200):
+    for frame in xrange(100):
         # env.render()
 
         # epsilon-greedy actions
@@ -81,38 +80,42 @@ for episode in xrange(1000):
         old_observation = observation
         observation, reward, done, info = env.step(action)
 
-
-        print model.getValues(observation)
+        # print model.getValues(observation)
 
         totalreward += reward
-        transitions.append((old_observation,action,reward,done,observation))
+        transitions.append((old_observation,action,reward,False,observation))
+
+        if len(transitions) > 600:
+            transitions.pop(0)
 
         if done:
             break
     print totalreward
 
-    observation_history = np.zeros((0,num_observations))
-    action_history = np.zeros((0,num_actions))
-    montecarlo_history = np.array(())
-    for transition in transitions:
-        old_observation, action, reward, done, next_observation = transition
+    for x in xrange(50):
+        observation_history = np.zeros((0,num_observations))
+        action_history = np.zeros((0,num_actions))
+        TQ_history = np.array(())
+        for transition in random.sample(transitions, 64):
+            old_observation, action, reward, done, next_observation = transition
 
-        montecarlo = totalreward
-        totalreward -= reward
+            # print "%s w/action %d gives reward %f to %s which was worth %s" % (np.array_str(old_observation), action, reward, np.array_str(next_observation), np.array_str(model.getValues(next_observation)))
 
-        old_observation_reshaped = np.reshape(old_observation,(1,num_observations))
-        observation_history = np.append(observation_history,old_observation_reshaped,axis=0)
+            TQ = reward + 0.5 * np.amax(model.getValues(next_observation))
+            print TQ
 
-        action_onehot = np.zeros((1,num_actions))
-        action_onehot[:,action] = 1.0
-        action_history = np.append(action_history,action_onehot,axis=0)
+            old_observation_reshaped = np.reshape(old_observation,(1,num_observations))
+            observation_history = np.append(observation_history,old_observation_reshaped,axis=0)
 
-        montecarlo_history = np.append(montecarlo_history,montecarlo)
+            action_onehot = np.zeros((1,num_actions))
+            action_onehot[:,action] = 1.0
+            action_history = np.append(action_history,action_onehot,axis=0)
 
-    # print observation_history
-    # print action_history
-    # print montecarlo_history
-    model.update(observation_history,action_history,montecarlo_history)
+            TQ_history = np.append(TQ_history,TQ)
+
+        model.update(observation_history,action_history,TQ_history)
+        print "update done"
+        # lr *= 0.9995
 
 
 # env.monitor.close()
